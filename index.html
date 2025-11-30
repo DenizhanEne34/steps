@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Receipt Generator (Deployment Ready)</title>
+    <!-- Load React and ReactDOM from CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Load Tailwind CSS from CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Babel for JSX/TSX transformation in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Load Lucide icons library -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Define the font styles for the whole document */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for printing */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #receipt-preview, #receipt-preview * {
+                visibility: visible;
+            }
+            #receipt-preview {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 0;
+                box-shadow: none;
+            }
+            /* Ensure minimal margins when saving to PDF */
+            @page {
+                size: auto;
+                margin: 0mm;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Import components/hooks from the global scope set by CDNs
+        const { useState, useEffect, useRef } = React;
+        const Calculator = lucide.icons.Calculator;
+        const Plus = lucide.icons.Plus;
+        const Trash2 = lucide.icons.Trash2;
+        const Printer = lucide.icons.Printer;
+
+        // -- Types --
+        // (Simplified types for this single-file context)
+        // No need to export interfaces here, just define the shape
+        // interface ReceiptItem { id: string; code: string; color: string; qty: number; price: number; }
+        // interface ReceiptData { company: string; docNo: string; date: string; staff: string; prevBalance: number; }
+
+        function App() {
+          // -- State --
+          const [data, setData] = useState({
+            company: 'CITY MZARA ARTVİN CEYLAN',
+            docNo: 'T-0004429',
+            date: new Date().toLocaleString('tr-TR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
+            staff: 'ZEYNEP',
+            prevBalance: 0,
+          });
+
+          const [items, setItems] = useState([
+            { id: '1', code: '26K2027-B', color: 'BORDO', qty: 4, price: 675.00 },
+            { id: '2', code: '26K2027-B', color: 'KAHVE', qty: 4, price: 675.00 },
+            { id: '3', code: '26K2027-B', color: 'SIYAH', qty: 4, price: 675.00 },
+          ]);
+
+          // -- Calculations --
+          const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
+          const totalAmount = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+          const kdvRate = 0.10; // 10% based on the image (8100 -> 810)
+          const kdvAmount = totalAmount * kdvRate;
+          const netAmount = totalAmount + kdvAmount;
+          const currentBalance = data.prevBalance + netAmount;
+
+          // -- Handlers --
+          const handleDataChange = (e) => {
+            const { name, value } = e.target;
+            setData(prev => ({
+              ...prev,
+              [name]: name === 'prevBalance' ? parseFloat(value) || 0 : value
+            }));
+          };
+
+          const handleItemChange = (id, field, value) => {
+            setItems(prev => prev.map(item => {
+              if (item.id === id) {
+                // Parse number fields correctly
+                if (field === 'qty') {
+                    return { ...item, [field]: parseInt(value) || 0 };
+                }
+                if (field === 'price') {
+                    return { ...item, [field]: parseFloat(value) || 0 };
+                }
+                return { ...item, [field]: value };
+              }
+              return item;
+            }));
+          };
+
+          const addItem = () => {
+            setItems(prev => [
+              ...prev,
+              { id: Date.now().toString(), code: '', color: '', qty: 1, price: 0 }
+            ]);
+          };
+
+          const removeItem = (id) => {
+            setItems(prev => prev.filter(item => item.id !== id));
+          };
+
+          const handlePrint = () => {
+            window.print();
+          };
+
+          // -- Formatting Helpers --
+          const formatMoney = (amount) => {
+            return amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          };
+
+          return (
+            <div className="min-h-screen bg-gray-100 p-4 font-sans text-gray-800 print:bg-white print:p-0">
+              
+              {/* Header / Controls - Hidden in Print */}
+              <div className="max-w-6xl mx-auto mb-6 flex justify-between items-center print:hidden">
+                <h1 className="text-2xl font-bold text-gray-700 flex items-center gap-2">
+                  <Calculator className="w-8 h-8 text-blue-600" />
+                  Digital Receipt Generator
+                </h1>
+                <button 
+                  onClick={handlePrint}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold flex items-center gap-2 shadow-sm transition-colors"
+                >
+                  <Printer className="w-5 h-5" />
+                  Print / Save as PDF
+                </button>
+              </div>
+
+              <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-8 print:block">
+                
+                {/* LEFT PANEL: Editor Form - Hidden in Print */}
+                <div className="flex-1 bg-white p-6 rounded-xl shadow-sm print:hidden h-fit">
+                  <h2 className="text-lg font-semibold mb-4 border-b pb-2">Receipt Details</h2>
+                  
+                  {/* Header Info */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">Firma</label>
+                      <input 
+                        type="text" name="company" value={data.company} onChange={handleDataChange}
+                        className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">Belge No</label>
+                      <input 
+                        type="text" name="docNo" value={data.docNo} onChange={handleDataChange}
+                        className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">Tarih (E.g., 28.11.2025 15:40)</label>
+                      <input 
+                        type="text" name="date" value={data.date} onChange={handleDataChange}
+                        className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">Personel</label>
+                      <input 
+                        type="text" name="staff" value={data.staff} onChange={handleDataChange}
+                        className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Items List */}
+                  <h3 className="text-md font-semibold mb-3">Items</h3>
+                  <div className="space-y-3 mb-6">
+                    {items.map((item, index) => (
+                      <div key={item.id} className="flex flex-wrap gap-2 items-end p-3 bg-gray-50 rounded-lg border">
+                        <div className="flex-1 min-w-[120px]">
+                          <label className="text-xs text-gray-500">Kodu</label>
+                          <input 
+                            type="text" value={item.code} 
+                            onChange={(e) => handleItemChange(item.id, 'code', e.target.value)}
+                            className="w-full border rounded px-2 py-1 text-sm"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[100px]">
+                          <label className="text-xs text-gray-500">Renk</label>
+                          <input 
+                            type="text" value={item.color} 
+                            onChange={(e) => handleItemChange(item.id, 'color', e.target.value)}
+                            className="w-full border rounded px-2 py-1 text-sm"
+                          />
+                        </div>
+                        <div className="w-20">
+                          <label className="text-xs text-gray-500">Adet</label>
+                          <input 
+                            type="number" value={item.qty} 
+                            onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
+                            className="w-full border rounded px-2 py-1 text-sm text-right"
+                            min="0"
+                          />
+                        </div>
+                        <div className="w-24">
+                          <label className="text-xs text-gray-500">Fiyat</label>
+                          <input 
+                            type="number" value={item.price} 
+                            onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                            className="w-full border rounded px-2 py-1 text-sm text-right"
+                            step="0.01" min="0"
+                          />
+                        </div>
+                        <button 
+                          onClick={() => removeItem(item.id)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded"
+                          title="Remove Item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button 
+                      onClick={addItem}
+                      className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-500 hover:text-blue-500 flex justify-center items-center gap-2 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" /> Add Item
+                    </button>
+                  </div>
+
+                  {/* Financials */}
+                  <div className="border-t pt-4">
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-600 mb-1">Önceki Bakiye</label>
+                          <input 
+                            type="number" name="prevBalance" value={data.prevBalance} onChange={handleDataChange}
+                            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                            step="0.01"
+                          />
+                        </div>
+                     </div>
+                  </div>
+                </div>
+
+                {/* RIGHT PANEL: The Receipt Preview */}
+                <div className="flex-1 flex justify-center print:block print:w-full print:h-full">
+                  {/* This container replicates the thermal paper look. */}
+                  <div 
+                    id="receipt-preview"
+                    className="
+                      bg-white text-black font-mono text-sm leading-tight
+                      w-[380px] min-h-[600px] 
+                      shadow-2xl print:shadow-none 
+                      p-6 
+                      relative
+                      print:w-full print:max-w-[400px] print:mx-auto print:absolute print:top-0 print:left-0
+                    "
+                    style={{ fontFamily: '"Courier New", Courier, monospace' }}
+                  >
+                    {/* Logo Area Placeholder */}
+                    <div className="text-center mb-8">
+                      <h1 className="text-3xl font-bold tracking-widest mb-1">STEPS</h1>
+                      <p className="text-xs tracking-[0.3em] text-gray-600">WHOLESALE</p>
+                    </div>
+
+                    {/* Header Info Table - Using Flex/Grid to simulate the alignment */}
+                    <div className="mb-4 text-[13px] space-y-1">
+                      <div className="flex">
+                        <span className="w-24">Firma</span>
+                        <span className="mr-2">:</span>
+                        <span className="uppercase">{data.company}</span>
+                      </div>
+                      <div className="flex">
+                        <span className="w-24">Belge No</span>
+                        <span className="mr-2">:</span>
+                        <span>{data.docNo}</span>
+                      </div>
+                      <div className="flex">
+                        <span className="w-24">Tarih</span>
+                        <span className="mr-2">:</span>
+                        <span>{data.date}</span>
+                      </div>
+                      <div className="flex">
+                        <span className="w-24">Personel</span>
+                        <span className="mr-2">:</span>
+                        <span className="uppercase">{data.staff}</span>
+                      </div>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="border-b border-black border-dashed my-2"></div>
+
+                    {/* Items Table Header */}
+                    <div className="flex text-[13px] font-bold mb-2">
+                      <span className="w-24">KODU</span>
+                      <span className="w-16">RENK</span>
+                      <span className="w-10 text-right">ADET</span>
+                      <span className="w-20 text-right">FIYAT</span>
+                      <span className="flex-1 text-right">TUTAR</span>
+                    </div>
+
+                    {/* Items List */}
+                    <div className="space-y-1 mb-4">
+                      {items.map((item) => (
+                        <div key={item.id} className="flex text-[13px]">
+                          <span className="w-24 truncate pr-1">{item.code}</span>
+                          <span className="w-16 truncate pr-1">{item.color}</span>
+                          <span className="w-10 text-right">{item.qty}</span>
+                          <span className="w-20 text-right">{formatMoney(item.price)}</span>
+                          <span className="flex-1 text-right">{formatMoney(item.qty * item.price)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Empty Lines Filler to match receipt style if list is short */}
+                    <div className="h-4"></div>
+
+                    {/* Divider */}
+                    <div className="border-b border-black border-dashed my-2"></div>
+
+                    {/* Totals Section */}
+                    <div className="space-y-1 font-bold text-[14px]">
+                      <div className="flex justify-between">
+                        <span>Toplam Miktar</span>
+                        <span>{totalQty}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Toplam Tutar</span>
+                        <span>{formatMoney(totalAmount)}</span>
+                      </div>
+                    </div>
+
+                    <div className="h-4"></div>
+
+                    <div className="space-y-1 font-bold text-[14px]">
+                      <div className="flex justify-between">
+                        <span>KDV Tutarı</span>
+                        <span>{formatMoney(kdvAmount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Net Tutar</span>
+                        <span>{formatMoney(netAmount)}</span>
+                      </div>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="border-b border-black border-dashed my-2"></div>
+
+                    {/* Balance Section */}
+                    <div className="space-y-1 font-bold text-[14px]">
+                       <div className="flex justify-between">
+                        <span>Önceki Bakiye</span>
+                        <span>{formatMoney(data.prevBalance)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Bu Fiş Tutarı</span>
+                        <span>{formatMoney(netAmount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Güncel Bakiye</span>
+                        <span>{formatMoney(currentBalance)}</span>
+                      </div>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="border-b border-black border-dashed my-2"></div>
+
+                    {/* Footer / QR Codes */}
+                    <div className="mt-6">
+                      <div className="flex justify-around mb-2 text-center font-bold text-sm">
+                         <span>instagram</span>
+                         <span>telegram</span>
+                      </div>
+                      <div className="flex justify-around mb-4">
+                        {/* QR codes are loaded from a public API */}
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://instagram.com/stepswholesale`} 
+                          alt="Instagram QR" 
+                          className="w-24 h-24"
+                          // Fallback placeholder image
+                          onerror="this.onerror=null; this.src='https://placehold.co/100x100/94A3B8/ffffff?text=IG';"
+                        />
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://t.me/stepswholesale`} 
+                          alt="Telegram QR" 
+                          className="w-24 h-24"
+                          // Fallback placeholder image
+                          onerror="this.onerror=null; this.src='https://placehold.co/100x100/94A3B8/ffffff?text=TG';"
+                        />
+                      </div>
+
+                      <div className="text-center text-[12px] font-bold space-y-1">
+                        <div>Turkish: +90 542 110 69 45</div>
+                        <div>English: +90 542 182 78 17</div>
+                        <div className="pt-1">www.stepswholesale.com</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Render the application to the root element
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
